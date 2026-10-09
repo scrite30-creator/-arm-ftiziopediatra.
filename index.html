@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b2545">
-<title>АРМ фтизиопедиатра · демо 0.4</title>
+<title>АРМ фтизиопедиатра · демо 0.4.1</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#14243b;background:#f3f6fa;font-synthesis:none}
 *{box-sizing:border-box}body{margin:0;min-height:100vh}button,input,select,textarea{font:inherit}button{cursor:pointer}a{color:#12669e}
@@ -13,7 +13,7 @@
 </style>
 </head>
 <body>
-<header class="top"><div class="top-inner"><div class="eyebrow">МЕДИЦИНСКОЕ РАБОЧЕЕ МЕСТО</div><h1>АРМ фтизиопедиатра</h1><p>Диспансерный учёт · Контроль · Отчётность</p><span class="demo">ВЕРСИЯ 0.4 · ТОЛЬКО ВЫМЫШЛЕННЫЕ ПАЦИЕНТЫ</span></div></header>
+<header class="top"><div class="top-inner"><div class="eyebrow">МЕДИЦИНСКОЕ РАБОЧЕЕ МЕСТО</div><h1>АРМ фтизиопедиатра</h1><p>Диспансерный учёт · Контроль · Отчётность</p><span class="demo">ВЕРСИЯ 0.4.1 · ТОЛЬКО ВЫМЫШЛЕННЫЕ ПАЦИЕНТЫ</span></div></header>
 <main class="wrap">
 <section id="home" class="page active">
  <div class="section">Обзор реестра</div><div class="stats"><div class="stat"><strong id="stat-all">—</strong><span>Всего пациентов</span></div><div class="stat"><strong id="stat-active">—</strong><span>На ДН сегодня</span></div><div class="stat"><strong id="stat-off">—</strong><span>Вне ДН / сняты</span></div><div class="stat"><strong id="stat-events">—</strong><span>Событий ДН в 2026</span></div></div>
@@ -84,7 +84,35 @@ function active(g){return g!==null&&g!==undefined&&GROUPS.includes(g)}
 function current(){return patients.find(p=>p.id===currentId)}
 function viaSubtype(p){let v='';for(const e of eventsFor(p)){if(e.date>isoToday())break;if(e.kind==='remove'||(e.kind==='transfer'&&e.to!=='VIA'))v='';if((e.kind==='take'||e.kind==='transfer')&&e.to==='VIA')v=e.subtype||'';if(e.kind==='subtype')v=e.subtype||v;}return v}
 function testKind(k){return k==='Проба Манту'?'mantoux':k==='АТР (Диаскинтест)'?'dst':null}
-function interpretTest(kind,raw){let test=testKind(kind);if(!test||!raw.trim())return null;let t=raw.toLowerCase().replace(/ё/g,'е').trim();let pap=/\bпап(?:ула|улы|\.)?\b/.test(t),ves=/вез(?:икул[а-я]*)?\.?/.test(t),hyp=/\bгип(?:ер(?:емия)?)?\.?\b/.test(t),neg=/\bотр(?:иц(?:ательный|ательная|ательно)?)?\.?\b/.test(t);let m=t.match(/(\d{1,2})(?:\s*мм)?/),mm=m?Number(m[1]):null;if(ves&&pap)return {label:'Гиперергическая',mm};if(pap){if(mm===null)return {label:'Уточните размер папулы',uncertain:true};if(test==='mantoux')return {label:mm>=17?'Гиперергическая':mm>=5?'Положительная':mm>=2?'Сомнительная':'Отрицательная',mm};if(mm>=15)return {label:'Гиперергическая',mm};if(mm>=2)return {label:'Положительная',mm};return {label:'Требует проверки (папула менее 2 мм)',mm,uncertain:true}}if(ves)return {label:'Уточните наличие папулы',uncertain:true};if(hyp&&!neg)return {label:'Сомнительная',mm:null};if(neg&&!hyp)return {label:'Отрицательная',mm:null};if(!hyp&&!neg&&mm!==null)return {label:'Уточните: папула или гиперемия',uncertain:true};return {label:'Не удалось однозначно распознать',uncertain:true}}
+function interpretTest(kind,raw){
+ let test=testKind(kind);if(!test||!raw||!raw.trim())return null;
+ let t=raw.toLowerCase().replace(/ё/g,'е').trim();
+ // In JavaScript, \b does not detect Russian word boundaries: use Cyrillic-aware edges.
+ const papToken=/(?:^|[^а-яa-z])пап(?:ул[а-я]*|\.)?(?=$|[^а-яa-z])/;
+ const vesToken=/(?:^|[^а-яa-z])вез(?:икул[а-я]*)?\.?(?=$|[^а-яa-z])/;
+ const hypToken=/(?:^|[^а-яa-z])гип(?:ер(?:ем[а-я]*)?)?\.?(?=$|[^а-яa-z])/;
+ const negToken=/(?:^|[^а-яa-z])отр(?:иц[а-я]*)?\.?(?=$|[^а-яa-z])/;
+ let pap=papToken.test(t),ves=vesToken.test(t),hyp=hypToken.test(t),neg=negToken.test(t);
+ // The number after 'пап' takes precedence over dates earlier in the note.
+ let size=t.match(/(?:^|[^а-яa-z])пап(?:ул[а-я]*|\.)?\s*[:=.,-]?\s*(\d{1,2})(?!\d)/);
+ if(!size)size=t.match(/(?:^|[^а-яa-z0-9])(\d{1,2})\s*мм(?=$|[^а-яa-z])/);
+ if(!size&&/^\d{1,2}$/.test(t))size=[t,t];
+ let mm=size?Number(size[1]):null;
+ if(neg&&(pap||ves||hyp))return {label:'Противоречивые признаки — проверьте запись',uncertain:true};
+ if(ves&&pap)return {label:'Гиперергическая',mm};
+ if(pap||(mm!==null&&!hyp&&!neg)){
+  if(mm===null)return {label:'Уточните размер папулы',uncertain:true};
+  if(test==='mantoux')return {label:mm>=17?'Гиперергическая':mm>=5?'Положительная':mm>=2?'Сомнительная':'Отрицательная',mm};
+  if(mm>=15)return {label:'Гиперергическая',mm};
+  if(mm>=2)return {label:'Положительная',mm};
+  if(mm===0&&!pap)return {label:'Отрицательная',mm};
+  return {label:'Требует проверки (папула менее 2 мм)',mm,uncertain:true};
+ }
+ if(ves)return {label:'Уточните наличие папулы',uncertain:true};
+ if(hyp)return {label:'Сомнительная',mm:null};
+ if(neg)return {label:'Отрицательная',mm:null};
+ return {label:'Не удалось однозначно распознать',uncertain:true};
+}
 function testBadge(x){let z=interpretTest(x.kind,x.result);return z?`<small>Автоинтерпретация: <b>${esc(z.label)}</b>${z.mm!==null&&z.mm!==undefined?' · '+z.mm+' мм':''}</small>`:''}
 function updateInterpret(){let z=interpretTest(document.getElementById('x-kind').value,document.getElementById('x-result').value),el=document.getElementById('x-interpret');el.classList.toggle('hidden',!z);if(z){el.className=(z.uncertain?'dangerbox':'goodbox');el.textContent='Автоинтерпретация: '+z.label+(z.mm!==null&&z.mm!==undefined?' · '+z.mm+' мм':'')+'. Исходная запись сохраняется.'}}
 
@@ -130,7 +158,7 @@ function renderReports(){let target=document.getElementById('report-status'),sum
  summary.innerHTML=`<div class="divider"></div>${[['Состояло на 01.01',total.start],['Взято',total.take],['Снято',total.remove],['Перевод (сальдо)',total.transfer],['Возрастной переход (сальдо)',total.age],['Состоит на '+dateRu(cutoff),total.end]].map(([k,v])=>`<div class="line"><span>${esc(k)}</span><b>${number(v)}</b></div>`).join('')}<div class="divider"></div><p class="note">Расчёт: ${number(total.start)} + ${number(total.take)} − ${number(total.remove)} ${total.transfer>=0?'+':'−'} ${Math.abs(total.transfer)} ${total.age>=0?'+':'−'} ${Math.abs(total.age)} = ${number(total.end)}.</p>${aging?'<p class="note"><b>Есть возрастные переходы.</b> В официальном бланке нет отдельного столбца «Возраст». Пока правило отражения таких случаев не согласовано, экспорт официальной формы заблокирован.</p>':''}`;
  const mk=(label,region)=>{let entries=rows.filter(x=>x.region===region).sort((a,b)=>GROUPS.indexOf(a.group)-GROUPS.indexOf(b.group)||a.band.localeCompare(b.band,'ru'));let total=sumRows(entries);return `<div class="card"><h3>${label}</h3><div class="scroll"><table class="table"><thead><tr><th>ГДУ / возраст</th><th>Состояло</th><th>Взято</th><th>Снято</th><th>Перевод</th><th>Возраст*</th><th>Состоит</th><th>Разница</th></tr></thead><tbody>${entries.map(r=>`<tr><td>${esc(r.group)} · ${r.band==='Дети'?'0–14':'15–17'}</td><td>${number(r.start)}</td><td>${number(r.take)}</td><td>${number(r.remove)}</td><td>${number(r.transfer)}</td><td>${number(r.age)}</td><td>${number(r.end)}</td><td class="${r.diff?'bad':''}">${number(r.diff)}</td></tr>`).join('')}<tr class="total"><td>Итого</td><td>${total.start}</td><td>${total.take}</td><td>${total.remove}</td><td>${total.transfer}</td><td>${total.age}</td><td>${total.end}</td><td>${total.diff}</td></tr></tbody></table></div></div>`};output.innerHTML=mk('Москва','Москва')+mk('Не Москва','Не Москва')+'<p class="note">*Техническая колонка только для сверки. В настоящем отчёте дополнительно потребуется согласовать правила IV+ / IV− по видам контактов, переходов территории и возрастной категории, а также графу «Перевод» исходного шаблона.</p>'}
 function download(name,body,type){const b=new Blob([body],{type}),url=URL.createObjectURL(b),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000)}
-function onAction(action){if(action==='new')openEdit(true);if(action==='edit')openEdit(false);if(action==='back')openPage('patients');if(action==='detail')openPage('detail');if(action==='event')openEvent();if(action==='exam'){examEditId=null;openPage('exam');}if(action==='reset'&&confirm('Сбросить все учебные изменения и вернуть вымышленные примеры?')){patients=copy(SAMPLE);currentId=null;save();renderHome();openPage('home');alertMsg('Демо-данные восстановлены')}if(action==='export'){download('arm-ftizio-demo-'+isoToday()+'.json',JSON.stringify({app:'arm-ftizio-demo-0.4',patients},null,2),'application/json;charset=utf-8');alertMsg('Файл учебной базы сформирован')}}
+function onAction(action){if(action==='new')openEdit(true);if(action==='edit')openEdit(false);if(action==='back')openPage('patients');if(action==='detail')openPage('detail');if(action==='event')openEvent();if(action==='exam'){examEditId=null;openPage('exam');}if(action==='reset'&&confirm('Сбросить все учебные изменения и вернуть вымышленные примеры?')){patients=copy(SAMPLE);currentId=null;save();renderHome();openPage('home');alertMsg('Демо-данные восстановлены')}if(action==='export'){download('arm-ftizio-demo-'+isoToday()+'.json',JSON.stringify({app:'arm-ftizio-demo-0.4.1',patients},null,2),'application/json;charset=utf-8');alertMsg('Файл учебной базы сформирован')}}
 document.addEventListener('click',e=>{let el=e.target.closest('[data-action]');if(el){e.preventDefault();onAction(el.dataset.action)}let examBtn=e.target.closest('[data-exam-edit]');if(examBtn){examEditId=examBtn.dataset.examEdit;openPage('exam')}let link=e.target.closest('[data-open]');if(link){currentId=link.dataset.open;openPage('detail')}});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('[data-open]')){currentId=e.target.dataset.open;openPage('detail')}});
 document.getElementById('patient-form').addEventListener('submit',onPatientSubmit);
